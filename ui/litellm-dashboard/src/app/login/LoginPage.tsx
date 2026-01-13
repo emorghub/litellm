@@ -6,19 +6,19 @@ import LoadingScreen from "@/components/common_components/LoadingScreen";
 import { getProxyBaseUrl } from "@/components/networking";
 import { getCookie } from "@/utils/cookieUtils";
 import { isJwtExpired } from "@/utils/jwtUtils";
-import { InfoCircleOutlined } from "@ant-design/icons";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Alert, Button, Card, Form, Input, Space, Typography } from "antd";
+import { Alert, Card, Space, Typography } from "antd";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 function LoginPageContent() {
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const { data: uiConfig, isLoading: isConfigLoading } = useUIConfig();
   const loginMutation = useLogin();
   const router = useRouter();
+
+  const error = loginMutation.error instanceof Error ? loginMutation.error.message : null;
+  const isLoginLoading = loginMutation.isPending;
 
   useEffect(() => {
     if (isConfigLoading) {
@@ -42,22 +42,19 @@ function LoginPageContent() {
       return;
     }
 
-    setIsLoading(false);
-  }, [isConfigLoading, router, uiConfig]);
-
-  const handleSubmit = () => {
-    loginMutation.mutate(
-      { username, password },
-      {
-        onSuccess: (data) => {
-          router.push(data.redirect_url);
+    if (!isLoginLoading && !error) {
+      loginMutation.mutate(
+        { username: "x-litellm-api-key", password: "" },
+        {
+          onSuccess: (data) => {
+            router.push(data.redirect_url);
+          },
         },
-      },
-    );
-  };
+      );
+    }
 
-  const error = loginMutation.error instanceof Error ? loginMutation.error.message : null;
-  const isLoginLoading = loginMutation.isPending;
+    setIsLoading(false);
+  }, [isConfigLoading, router, uiConfig, error, isLoginLoading]);
 
   const { Title, Text, Paragraph } = Typography;
 
@@ -110,76 +107,7 @@ function LoginPageContent() {
             <Text type="secondary">Access your LiteLLM Admin UI.</Text>
           </div>
 
-          <Alert
-            message="Default Credentials"
-            description={
-              <>
-                <Paragraph className="text-sm">
-                  By default, Username is <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">admin</code> and
-                  Password is your set LiteLLM Proxy
-                  <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">MASTER_KEY</code>.
-                </Paragraph>
-                <Paragraph className="text-sm">
-                  Need to set UI credentials or SSO?{" "}
-                  <a href="https://docs.litellm.ai/docs/proxy/ui" target="_blank" rel="noopener noreferrer">
-                    Check the documentation
-                  </a>
-                  .
-                </Paragraph>
-              </>
-            }
-            type="info"
-            icon={<InfoCircleOutlined />}
-            showIcon
-          />
-
           {error && <Alert message={error} type="error" showIcon />}
-
-          <Form onFinish={handleSubmit} layout="vertical" requiredMark={true}>
-            <Form.Item
-              label="Username"
-              name="username"
-              rules={[{ required: true, message: "Please enter your username" }]}
-            >
-              <Input
-                placeholder="Enter your username"
-                autoComplete="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                disabled={isLoginLoading}
-                size="large"
-                className="rounded-md border-gray-300"
-              />
-            </Form.Item>
-
-            <Form.Item
-              label="Password"
-              name="password"
-              rules={[{ required: true, message: "Please enter your password" }]}
-            >
-              <Input.Password
-                placeholder="Enter your password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                disabled={isLoginLoading}
-                size="large"
-              />
-            </Form.Item>
-
-            <Form.Item>
-              <Button
-                type="primary"
-                htmlType="submit"
-                loading={isLoginLoading}
-                disabled={isLoginLoading}
-                block
-                size="large"
-              >
-                {isLoginLoading ? "Logging in..." : "Login"}
-              </Button>
-            </Form.Item>
-          </Form>
         </Space>
       </Card>
     </div>
