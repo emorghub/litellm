@@ -579,13 +579,14 @@ _description = (
 
 
 def cleanup_router_config_variables():
-    global master_key, user_config_file_path, otel_logging, user_custom_auth, user_custom_auth_path, user_custom_key_generate, user_custom_sso, user_custom_ui_sso_sign_in_handler, use_background_health_checks, use_shared_health_check, health_check_interval, prisma_client
+    global master_key, user_config_file_path, otel_logging, user_custom_auth, user_custom_ui_auth, user_custom_auth_path, user_custom_key_generate, user_custom_sso, user_custom_ui_sso_sign_in_handler, use_background_health_checks, use_shared_health_check, health_check_interval, prisma_client
 
     # Set all variables to None
     master_key = None
     user_config_file_path = None
     otel_logging = None
     user_custom_auth = None
+    user_custom_ui_auth = None
     user_custom_auth_path = None
     user_custom_key_generate = None
     user_custom_sso = None
@@ -597,7 +598,7 @@ def cleanup_router_config_variables():
 
 
 async def proxy_shutdown_event():
-    global prisma_client, master_key, user_custom_auth, user_custom_key_generate
+    global prisma_client, master_key, user_custom_auth, user_custom_ui_auth, user_custom_key_generate
     verbose_proxy_logger.info("Shutting down LiteLLM Proxy Server")
     if prisma_client:
         verbose_proxy_logger.debug("Disconnecting from Prisma")
@@ -1196,6 +1197,7 @@ redis_usage_cache: Optional[
 polling_via_cache_enabled: Union[Literal["all"], List[str], bool] = False
 polling_cache_ttl: int = 3600  # Default 1 hour TTL for polling cache
 user_custom_auth = None
+user_custom_ui_auth = None
 user_custom_key_generate = None
 user_custom_sso = None
 user_custom_ui_sso_sign_in_handler = None
@@ -2195,7 +2197,7 @@ class ProxyConfig:
         """
         Load config values into proxy global state
         """
-        global master_key, user_config_file_path, otel_logging, user_custom_auth, user_custom_auth_path, user_custom_key_generate, user_custom_sso, user_custom_ui_sso_sign_in_handler, use_background_health_checks, use_shared_health_check, health_check_interval, use_queue, proxy_budget_rescheduler_max_time, proxy_budget_rescheduler_min_time, ui_access_mode, litellm_master_key_hash, proxy_batch_write_at, disable_spend_logs, prompt_injection_detection_obj, redis_usage_cache, store_model_in_db, premium_user, open_telemetry_logger, health_check_details, proxy_batch_polling_interval, config_passthrough_endpoints
+        global master_key, user_config_file_path, otel_logging, user_custom_auth, user_custom_ui_auth, user_custom_auth_path, user_custom_key_generate, user_custom_sso, user_custom_ui_sso_sign_in_handler, use_background_health_checks, use_shared_health_check, health_check_interval, use_queue, proxy_budget_rescheduler_max_time, proxy_budget_rescheduler_min_time, ui_access_mode, litellm_master_key_hash, proxy_batch_write_at, disable_spend_logs, prompt_injection_detection_obj, redis_usage_cache, store_model_in_db, premium_user, open_telemetry_logger, health_check_details, proxy_batch_polling_interval, config_passthrough_endpoints
 
         config: dict = await self.get_config(config_file_path=config_file_path)
 
@@ -2535,6 +2537,12 @@ class ProxyConfig:
             if custom_auth is not None:
                 user_custom_auth = get_instance_fn(
                     value=custom_auth, config_file_path=config_file_path
+                )
+
+            custom_ui_auth = general_settings.get("custom_ui_auth", None)
+            if custom_ui_auth is not None:
+                user_custom_ui_auth = get_instance_fn(
+                    value=custom_ui_auth, config_file_path=config_file_path
                 )
 
             custom_key_generate = general_settings.get("custom_key_generate", None)
@@ -4165,7 +4173,7 @@ async def initialize(  # noqa: PLR0915
     use_queue=False,
     config=None,
 ):
-    global user_model, user_api_base, user_debug, user_detailed_debug, user_user_max_tokens, user_request_timeout, user_temperature, user_telemetry, user_headers, experimental, llm_model_list, llm_router, general_settings, master_key, user_custom_auth, prisma_client
+    global user_model, user_api_base, user_debug, user_detailed_debug, user_user_max_tokens, user_request_timeout, user_temperature, user_telemetry, user_headers, experimental, llm_model_list, llm_router, general_settings, master_key, user_custom_auth, user_custom_ui_auth, prisma_client
     from litellm.proxy.common_utils.banner import show_banner
 
     show_banner()
@@ -8692,12 +8700,15 @@ async def login(request: Request):  # noqa: PLR0915
     password = str(form.get("password"))
 
     # Authenticate user and get login result
-    login_result = await authenticate_user(
-        username=username,
-        password=password,
-        master_key=master_key,
-        prisma_client=prisma_client,
-    )
+    if user_custom_ui_auth:
+        login_result = await user_custom_ui_auth(request, username, password)
+    else:
+        login_result = await authenticate_user(
+            username=username,
+            password=password,
+            master_key=master_key,
+            prisma_client=prisma_client,
+        )
 
     # Create UI token object
     returned_ui_token_object = create_ui_token_object(
@@ -8742,12 +8753,15 @@ async def login_v2(request: Request):  # noqa: PLR0915
         username = str(body.get("username"))
         password = str(body.get("password"))
 
-        login_result = await authenticate_user(
-            username=username,
-            password=password,
-            master_key=master_key,
-            prisma_client=prisma_client,
-        )
+        if user_custom_ui_auth:
+            login_result = await user_custom_ui_auth(request, username, password)
+        else:
+            login_result = await authenticate_user(
+                username=username,
+                password=password,
+                master_key=master_key,
+                prisma_client=prisma_client,
+            )
 
         returned_ui_token_object = create_ui_token_object(
             login_result=login_result,
