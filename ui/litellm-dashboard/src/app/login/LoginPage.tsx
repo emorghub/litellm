@@ -7,15 +7,13 @@ import { exchangeLoginCode, getProxyBaseUrl, switchToWorkerUrl } from "@/compone
 import { clearTokenCookies, getCookie } from "@/utils/cookieUtils";
 import { isJwtExpired } from "@/utils/jwtUtils";
 import { consumeReturnUrl, getReturnUrl, isValidReturnUrl } from "@/utils/returnUrlUtils";
-import { InfoCircleOutlined, CloudServerOutlined } from "@ant-design/icons";
-import { Alert, Button, Card, Form, Input, Popover, Select, Space, Typography } from "antd";
+import { InfoCircleOutlined } from "@ant-design/icons";
+import { Alert, Card, Space, Typography } from "antd";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useWorker } from "@/hooks/useWorker";
 
 function LoginPageContent() {
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const { data: uiConfig, isLoading: isConfigLoading } = useUIConfig();
   const loginMutation = useLogin();
@@ -31,6 +29,9 @@ function LoginPageContent() {
       setSelectedWorkerId(workerParam);
     }
   }, []);
+
+  const error = loginMutation.error instanceof Error ? loginMutation.error.message : null;
+  const isLoginLoading = loginMutation.isPending;
 
   useEffect(() => {
     if (isConfigLoading) {
@@ -112,47 +113,19 @@ function LoginPageContent() {
       return;
     }
 
-    setIsLoading(false);
-  }, [isConfigLoading, router, uiConfig]);
-
-  const handleSubmit = () => {
-    // If a worker is selected, point proxyBaseUrl at it before login
-    const selectedWorker = workers.find((w) => w.worker_id === selectedWorkerId);
-    if (selectedWorker) {
-      switchToWorkerUrl(selectedWorker.url);
+    if (!isLoginLoading && !error) {
+      loginMutation.mutate(
+        { username: "x-litellm-api-key", password: "" },
+        {
+          onSuccess: (data) => {
+            router.push(data.redirect_url);
+          },
+        },
+      );
     }
 
-    loginMutation.mutate(
-      { username, password, useV3: !!selectedWorker },
-      {
-        onSuccess: (data) => {
-          // Update the worker context with the selected worker
-          if (selectedWorker) {
-            selectWorker(selectedWorker.worker_id);
-            // Stay on the CP's UI — proxyBaseUrl already points at the worker
-            router.push("/ui/?login=success");
-          } else {
-            // Normal (non-control-plane) login — follow the server's redirect
-            const returnUrl = consumeReturnUrl();
-            if (returnUrl) {
-              router.push(returnUrl);
-            } else {
-              router.push(data.redirect_url);
-            }
-          }
-        },
-        onError: () => {
-          // Reset proxyBaseUrl on login failure
-          if (selectedWorker) {
-            switchToWorkerUrl(null);
-          }
-        },
-      },
-    );
-  };
-
-  const error = loginMutation.error instanceof Error ? loginMutation.error.message : null;
-  const isLoginLoading = loginMutation.isPending;
+    setIsLoading(false);
+  }, [isConfigLoading, router, uiConfig, error, isLoginLoading]);
 
   const { Title, Text, Paragraph } = Typography;
 
@@ -205,125 +178,7 @@ function LoginPageContent() {
             <Text type="secondary">Access your LiteLLM Admin UI.</Text>
           </div>
 
-          <Alert
-            message="Default Credentials"
-            description={
-              <>
-                <Paragraph className="text-sm">
-                  By default, Username is <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">admin</code> and
-                  Password is your set LiteLLM Proxy
-                  <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">MASTER_KEY</code>.
-                </Paragraph>
-                <Paragraph className="text-sm">
-                  Need to set UI credentials or SSO?{" "}
-                  <a href="https://docs.litellm.ai/docs/proxy/ui" target="_blank" rel="noopener noreferrer">
-                    Check the documentation
-                  </a>
-                  .
-                </Paragraph>
-              </>
-            }
-            type="info"
-            icon={<InfoCircleOutlined />}
-            showIcon
-          />
-
           {error && <Alert message={error} type="error" showIcon />}
-
-          <Form onFinish={handleSubmit} layout="vertical" requiredMark={false}>
-            {uiConfig?.is_control_plane && workers.length > 0 && (
-              <Form.Item label="Worker" style={{ marginBottom: 16 }}>
-                <Select
-                  value={selectedWorkerId || undefined}
-                  onChange={(value) => setSelectedWorkerId(value)}
-                  placeholder="Choose a worker to connect to"
-                  size="large"
-                  suffixIcon={<CloudServerOutlined />}
-                  options={workers.map((w) => ({
-                    label: w.name,
-                    value: w.worker_id,
-                  }))}
-                />
-              </Form.Item>
-            )}
-
-            <Form.Item
-              label="Username"
-              name="username"
-              rules={[{ required: true, message: "Please enter your username" }]}
-            >
-              <Input
-                placeholder="Enter your username"
-                autoComplete="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                disabled={isLoginLoading}
-                size="large"
-                className="rounded-md border-gray-300"
-              />
-            </Form.Item>
-
-            <Form.Item
-              label="Password"
-              name="password"
-              rules={[{ required: true, message: "Please enter your password" }]}
-            >
-              <Input.Password
-                placeholder="Enter your password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                disabled={isLoginLoading}
-                size="large"
-              />
-            </Form.Item>
-
-            <Form.Item>
-              <Button
-                type="primary"
-                htmlType="submit"
-                loading={isLoginLoading}
-                disabled={isLoginLoading}
-                block
-                size="large"
-              >
-                {isLoginLoading ? "Logging in..." : "Login"}
-              </Button>
-            </Form.Item>
-            <Form.Item>
-              {!uiConfig?.sso_configured ? (
-                <Popover
-                  content="Please configure SSO to log in with SSO."
-                  trigger="hover"
-                >
-                  <Button disabled block size="large">
-                    Login with SSO
-                  </Button>
-                </Popover>
-              ) : (
-                <Button
-                  disabled={isLoginLoading || (!!selectedWorkerId && workers.length === 0)}
-                  onClick={() => {
-                    const selectedWorker = workers.find((w) => w.worker_id === selectedWorkerId);
-                    if (selectedWorker) {
-                      // Store worker selection so useWorker hook restores it after redirect
-                      localStorage.setItem("litellm_selected_worker_id", selectedWorkerId!);
-                      switchToWorkerUrl(selectedWorker.url);
-                    }
-                    // SSO on the worker (or this instance if no worker), always
-                    // include return_to so the callback redirects back here
-                    const ssoBase = selectedWorker?.url ?? getProxyBaseUrl();
-                    const returnTo = encodeURIComponent(window.location.origin + "/ui/login");
-                    router.push(`${ssoBase}/sso/key/generate?return_to=${returnTo}`);
-                  }}
-                  block
-                  size="large"
-                >
-                  Login with SSO
-                </Button>
-              )}
-            </Form.Item>
-          </Form>
         </Space>
         {uiConfig?.sso_configured && (
           <Alert
