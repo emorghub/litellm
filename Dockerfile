@@ -5,7 +5,23 @@ ARG LITELLM_BUILD_IMAGE=cgr.dev/chainguard/wolfi-base@sha256:3258be472764337fd13
 ARG LITELLM_RUNTIME_IMAGE=cgr.dev/chainguard/wolfi-base@sha256:3258be472764337fd13095bcbb3182da170243b5819fd67ad4c0754590588b31
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.11.7@sha256:240fb85ab0f263ef12f492d8476aa3a2e4e1e333f7d67fbdd923d00a506a516a
 
+# Node image for UI build
+ARG NODE_BUILD_IMAGE=node:20.19.1-alpine3.21
+
 FROM $UV_IMAGE AS uvbin
+
+# UI builder stage
+FROM $NODE_BUILD_IMAGE AS ui-builder
+
+WORKDIR /ui
+
+# Install deps in a separate layer for caching
+COPY ui/litellm-dashboard/package.json ui/litellm-dashboard/package-lock.json ./
+RUN npm ci
+
+# Build
+COPY ui/litellm-dashboard/ ./
+RUN npm run build
 
 # Builder stage
 FROM $LITELLM_BUILD_IMAGE AS builder
@@ -47,8 +63,8 @@ RUN uv sync --frozen --no-install-project --no-install-workspace --no-default-gr
 # Copy full source tree
 COPY . .
 
-# Build Admin UI before final sync
-RUN sed -i 's/\r$//' docker/build_admin_ui.sh && chmod +x docker/build_admin_ui.sh && ./docker/build_admin_ui.sh
+# Override pre-built UI files with a fresh build from the ui-builder stage
+COPY --from=ui-builder /ui/out ./litellm/proxy/_experimental/out
 
 # Install project and workspace packages (fast - deps already cached)
 RUN uv sync --frozen --no-default-groups --no-editable \
